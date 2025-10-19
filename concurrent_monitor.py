@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Concurrent CBOR Serial Monitor - Two-process implementation
+Concurrent CBOR Serial Monitor - Two-process implementation with proper DEBUG handling
 """
 
 import serial
@@ -99,6 +99,7 @@ def packet_processor(ser, data_queue, stop_event):
     
     buffer = bytearray()
     packet_data = bytearray()
+    debug_buffer = bytearray()  # Separate buffer for DEBUG messages
     receiving_header = False
     receiving_chunk = False
     
@@ -108,21 +109,33 @@ def packet_processor(ser, data_queue, stop_event):
             try:
                 new_data = data_queue.get_nowait()
                 
-                # Handle text debug messages
-                try:
-                    text = new_data.decode('utf-8', errors='ignore')
-                    if "DEBUG:" in text:
-                        print(f"🐛 DEBUG: {text.strip()}")
-                except:
-                    pass
+                # Extract DEBUG messages
+                for byte in new_data:
+                    debug_buffer.append(byte)
+                    
+                    # Check if we have a complete line ending with \n
+                    if byte == ord('\n'):
+                        try:
+                            line_text = debug_buffer.decode('utf-8', errors='ignore').strip()
+                            # Only print if it starts with DEBUG:
+                            if line_text.startswith("DEBUG:"):
+                                print(f"🕹️ {line_text}")
+                        except:
+                            pass
+                        debug_buffer.clear()  # Clear for next line
+                    
+                    # Prevent memory leak - clear if buffer gets too large
+                    elif len(debug_buffer) > 1000:
+                        debug_buffer.clear()
                 
+                # Add all data to binary protocol buffer (unmodified)
                 buffer.extend(new_data)
                 
             except queue.Empty:
-                time.sleep(0.01)
+                time.sleep(0.0001)
                 continue
             
-            # Look for protocol markers
+            # Look for protocol markers (binary protocol handling)
             while len(buffer) >= 4:
                 if buffer[:4] == HEADER_START:
                     print("=== Header Start ===")
