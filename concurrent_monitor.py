@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Concurrent CBOR Serial Monitor - Two-process implementation with proper DEBUG handling
+Concurrent CBOR Serial Monitor
 """
 
 import serial
@@ -9,9 +9,11 @@ import crcmod
 import time
 import threading
 import queue
+from event_decoder import decode_result, format_event_list
+from data_storage import DeviceDataCollector
 
 # Configuration
-PORT = "/dev/tty.usbmodem1302"
+PORT = "/dev/tty.usbmodem11103"
 BAUDRATE = 9600
 
 # Protocol identifiers (4 bytes each, little endian)
@@ -27,8 +29,10 @@ calculate_crc = crcmod.predefined.mkPredefinedCrcFun('crc-32')
 ACK_START = 0x191A1B1C
 ACK_END = 0x1D1E1F20
 
+ACK_REQUESTED = 8
+
 def send_ack(ser, received_hash):
-    """Send simple ACK with hash"""
+    """Send simple ACK with crc"""
     try:
         ack_data = bytearray()
         ack_data.extend(ACK_START.to_bytes(4, 'little'))
@@ -36,12 +40,12 @@ def send_ack(ser, received_hash):
         ack_data.extend(ACK_END.to_bytes(4, 'little'))
         
         ser.write(ack_data)
-        print(f"✅ ACK sent for hash: 0x{received_hash:08X}")
+        print(f"✅ ACK sent for crc: 0x{received_hash:08X}")
     except Exception as e:
         print(f"❌ ACK send failed: {e}")
 
 def parse_header_packet(hex_data):
-    """Parse CBOR header packet: [LENGTH][CBOR][HASH]"""
+    """Parse CBOR header packet: [LENGTH][CBOR][CRC]"""
     try:
         # Extract length (2 bytes, little endian)
         length = int.from_bytes(bytes.fromhex(hex_data[:4]), "little")
@@ -65,17 +69,18 @@ def parse_header_packet(hex_data):
             decoded = {"error": "cbor decode failed"}
         
         return {
+            "ack_requested": decoded.get(ACK_REQUESTED, 0),
             "data": decoded,
             "hash_valid": hash_valid,
             "received_hash": received_hash,
-            "calculated_hash": calculated_hash
+            "calculated_hash": calculated_hash   
         }
     except Exception as e:
         print(f"Parse header error: {e}")
         return None
 
 def parse_chunk_packet(hex_data):
-    """Parse CBOR chunk packet: [PACKET_ID][LENGTH][CBOR][HASH]"""
+    """Parse CBOR chunk packet: [PACKET_ID][LENGTH][CBOR][CRC]"""
     try:
         # Extract packet ID (1 byte)
         packet_id = int.from_bytes(bytes.fromhex(hex_data[:2]), "little")
@@ -95,7 +100,6 @@ def parse_chunk_packet(hex_data):
         calculated_hash = calculate_crc(cbor_bytes)
         hash_valid = received_hash == calculated_hash
         
-        ACK_REQUESTED = 8
         # Decode CBOR
         try:
             decoded = cbor2.loads(cbor_bytes)
@@ -115,8 +119,7 @@ def parse_chunk_packet(hex_data):
         return None
 
 def serial_reader(ser, data_queue, stop_event):
-    """Process 1: Read serial data continuously"""
-    print("📡 Serial reader thread started")
+    print("Serial reader thread started")
     
     while not stop_event.is_set():
         try:
@@ -128,20 +131,23 @@ def serial_reader(ser, data_queue, stop_event):
                 time.sleep(0.001)  # Very small delay when no data
                 
         except Exception as e:
-            print(f"📡 Reader error: {e}")
+            print(f"Reader error: {e}")
             break
     
     print("📡 Serial reader stopped")
 
 def packet_processor(ser, data_queue, stop_event):
     """Process 2: Process incoming data and handle protocol"""
-    print("🔄 Packet processor thread started")
+    print("Packet processor thread started")
     
     buffer = bytearray()
     packet_data = bytearray()
     debug_buffer = bytearray()  # Separate buffer for DEBUG messages
     receiving_header = False
     receiving_chunk = False
+    
+    # Initialize data collector
+    collector = DeviceDataCollector()
     
     while not stop_event.is_set():
         try:
@@ -188,15 +194,20 @@ def packet_processor(ser, data_queue, stop_event):
                     receiving_header = False
                     if packet_data:
                         result = parse_header_packet(packet_data.hex())
-                        if result:
-                            print(f"Header data: {result['data']}")
-                            print(f"Hash valid: {result['hash_valid']}")
-                            
+                        print(f"Header data: {result['data']}")
+                        print(f"Hash valid: {result['hash_valid']}")
+                        
+                        # Process header in collector
+                        collector.process_header(result)
+                        
+                        if result.get('ack_requested', 1):    
                             # Send ACK if hash is valid
                             if result['hash_valid']:
                                 send_ack(ser, result['received_hash'])
                             else:
                                 print("❌ Hash invalid, no ACK sent")
+                        else:
+                            print("❌ ACK not requested, no ACK sent")
                     packet_data = bytearray()
                     buffer = buffer[4:]
                     
@@ -215,6 +226,14 @@ def packet_processor(ser, data_queue, stop_event):
                             print(f"Chunk data: {result['data']}")
                             print(f"Chunk packet ID: {result['packet_id']}")
                             print(f"Hash valid: {result['hash_valid']}")
+                            
+                            # Process chunk in collector
+                            collector.process_chunk(result)
+                            
+                            # Check if collection is complete and export CBOR
+                            if collector.is_complete():
+                                collector.to_cbor()
+                            
                             if result.get('ack_requested', 1):
                                 # Send ACK if hash is valid
                                 if result['hash_valid']:
@@ -235,9 +254,9 @@ def packet_processor(ser, data_queue, stop_event):
                     buffer = buffer[1:]
                     
         except Exception as e:
-            print(f"🔄 Processor error: {e}")
+            print(f"Processor error: {e}")
     
-    print("🔄 Packet processor stopped")
+    print("Packet processor stopped")
 
 def monitor_serial():
     """Concurrent serial monitor with two threads"""
@@ -248,7 +267,7 @@ def monitor_serial():
         data_queue = queue.Queue(maxsize=1000)  # Buffer for data transfer
         stop_event = threading.Event()
         
-        print("🚀 Starting concurrent monitoring...")
+        print("Starting concurrent monitoring...")
         
         # Create and start threads
         reader_thread = threading.Thread(
@@ -293,7 +312,7 @@ def monitor_serial():
             reader_thread.join(timeout=2)
             processor_thread.join(timeout=2)
             
-            print("✅ Monitor stopped")
+            print("Monitor stopped")
 
 if __name__ == "__main__":
     monitor_serial()
