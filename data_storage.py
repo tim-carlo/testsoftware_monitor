@@ -36,13 +36,14 @@ class DeviceDataCollector:
         
         self.current_device_family = device_family
         
-        if device_family not in self.devices:
-            self.devices[device_family] = {
-                'total_chunks': header_data.get(HEADER_KEY_TOTAL_CHUNKS, 0),
-                'pins': [],
-                'chunks_received': set(),
-                'complete': False
-            }
+        # Clear existing data for this device_family when new header received
+        self.devices[device_family] = {
+            'total_chunks': header_data.get(HEADER_KEY_TOTAL_CHUNKS, 0),
+            'pins': [],
+            'chunks_received': set(),
+            'complete': False
+        }
+        print(f"🔄 Reset data for device_family {device_family}")
         return True
     
     def process_chunk(self, chunk_result):
