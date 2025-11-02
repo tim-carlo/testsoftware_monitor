@@ -9,11 +9,11 @@ import crcmod
 import time
 import threading
 import queue
-from event_decoder import decode_result, format_event_list
+from event_decoder import decode_result, format_event_list, merge_handshake_events
 from data_storage import DeviceDataCollector
 
 # Configuration
-PORT = "/dev/tty.usbmodem11103"
+PORT = "/dev/tty.usbmodem11102"
 BAUDRATE = 9600
 
 # Protocol identifiers (4 bytes each, little endian)
@@ -194,7 +194,19 @@ def packet_processor(ser, data_queue, stop_event):
                     receiving_header = False
                     if packet_data:
                         result = parse_header_packet(packet_data.hex())
-                        print(f"Header data: {result['data']}")
+                        
+                        # Debug: Print CBOR structure with keys
+                        data = result.get('data', {})
+                        print(f"CBOR Header:")
+                        print(f"  [0] DEVICE_UUID: {data.get(0)}")
+                        print(f"  [1] DEVICE_FAMILY: {data.get(1)}")
+                        print(f"  [2] TOTAL_CHUNKS: {data.get(2)}")
+                        print(f"  [3] TOTAL_PINS: {data.get(3)}")
+                        print(f"  [4] ACTIVE_PINS: {data.get(4)}")
+                        print(f"  [5] HEADER_HASH: {data.get(5)}")
+                        print(f"  [6] NUMBER_SEEN_DEVICES: {data.get(6)}")
+                        print(f"  [7] SEEN_DEVICE_IDS: {data.get(7)}")
+                        print(f"  [8] ACK_REQUESTED: {data.get(8)}")
                         print(f"Hash valid: {result['hash_valid']}")
                         
                         # Process header in collector
@@ -223,8 +235,33 @@ def packet_processor(ser, data_queue, stop_event):
                     if packet_data:
                         result = parse_chunk_packet(packet_data.hex())
                         if result:
-                            print(f"Chunk data: {result['data']}")
-                            print(f"Chunk packet ID: {result['packet_id']}")
+                            # Debug: Print CBOR structure with keys
+                            data = result.get('data', {})
+                            print(f"CBOR Chunk (Packet ID: {result['packet_id']}):")
+                            print(f"  [0] CHUNK_ID: {data.get(0)}")
+                            print(f"  [1] NUM_ENTRIES: {data.get(1)}")
+                            print(f"  [3] CRC: {data.get(3)}")
+                            
+                            pins = data.get(2, [])
+                            print(f"  [2] PINS ({len(pins)} entries):")
+                            for i, pin in enumerate(pins):
+                                if isinstance(pin, dict):
+                                    print(f"    Pin {i}:")
+                                    print(f"      [4] PIN: {pin.get(4)}")
+                                    print(f"      [5] EVENTS: {pin.get(5, 0)} ({bin(pin.get(5, 0))})")
+                                    print(f"      [8] DEVICE_ID: {pin.get(8)}")
+                                    
+                                    connections = pin.get(6, [])
+                                    if connections:
+                                        print(f"      [6] CONNECTIONS ({len(connections)} entries):")
+                                        for j, conn in enumerate(connections):
+                                            if isinstance(conn, dict):
+                                                print(f"        Conn {j}: [7] OTHER_PIN={conn.get(7)}, [8] DEVICE_ID={conn.get(8)}")
+                                    else:
+                                        print(f"      [6] CONNECTIONS: []")
+                                else:
+                                    print(f"    Pin {i}: {pin} (unexpected type)")
+                            
                             print(f"Hash valid: {result['hash_valid']}")
                             
                             # Process chunk in collector
