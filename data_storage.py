@@ -83,6 +83,15 @@ class DeviceDataCollector:
             print(f"✅ Collection complete")
         return complete
     
+    def print_connections_summary(self):
+        print("\n=== Pin Connections ===")
+        for device_family, device_data in sorted(self.devices.items()):
+            print(f"Device {device_family}:")
+            for pin in device_data['pins']:
+                for conn in pin['connections']:
+                    print(f"  P{pin['pin']} -> Device{conn.get(KEY_DEVICE_ID)}:P{conn.get(KEY_OTHER_PIN)}")
+        print("="*23 + "\n")
+    
     def to_cbor(self):
         
         devices = [{HEADER_KEY_DEVICE_FAMILY: f, 2: [{KEY_PIN: p['pin'], KEY_EVENTS: p['events'], 

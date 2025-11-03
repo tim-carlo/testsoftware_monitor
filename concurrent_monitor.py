@@ -269,6 +269,7 @@ def packet_processor(ser, data_queue, stop_event):
                             
                             # Check if collection is complete and export CBOR
                             if collector.is_complete():
+                                collector.print_connections_summary()
                                 collector.to_cbor()
                             
                             if result.get('ack_requested', 1):
