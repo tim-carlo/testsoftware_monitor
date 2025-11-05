@@ -282,14 +282,10 @@ class DeviceDataCollector:
         if not pin_nums_a or not pin_nums_b:
             return
         
-        print(f"\n=== External Connection Matrix: Device {controller_a} -> Device {controller_b} ===")
-        
-        # Header mit Nummern
-        print(f"\n                ", end="")
-        for i in range(len(pin_nums_b)):
-            print(f"{i:2}", end=" ")
-        print()
-        print("  " + "-" * (3 * len(pin_nums_b)))
+        num_cols = 16 + 3 * len(pin_nums_b)
+        print(f"\n{'='*num_cols}")
+        print(f"External Connection Matrix: Device {controller_a} -> Device {controller_b}")
+        print(f"{'='*num_cols}")
         
         # Zeilen mit Pin-Namen
         pin_to_idx_a = {pin['pin']: idx for idx, pin in enumerate(device_a['pins'])}
@@ -304,7 +300,7 @@ class DeviceDataCollector:
                 print(f"{matrix[idx_a][idx_b]:2} ", end="")
             print()
         
-        print("=" * 50 + "\n")
+        print("=" * num_cols + "\n")
     
     def create_phase_matrix(self, controller, phase):
         if controller not in self.devices:
@@ -378,16 +374,10 @@ class DeviceDataCollector:
             3: "NO_PULL_DRIVE_HIGH"
         }
         
-        print(f"\n{'='*80}")
+        num_cols = 16 + 3 * len(pin_nums)
+        print(f"\n{'='*num_cols}")
         print(f"Phase {phase}: {phase_names.get(phase, f'PHASE_{phase}')} (Device {controller})")
-        print(f"{'='*80}")
-        
-        # Header mit Nummern (0, 1, 2, ...)
-        print(f"                ", end="")
-        for i in range(len(pin_nums)):
-            print(f"{i:2}", end=" ")
-        print()
-        print("  " + "-" * (3 * len(pin_nums)))
+        print(f"{'='*num_cols}")
         
         pin_to_idx = {pin['pin']: idx for idx, pin in enumerate(device['pins'])}
         
@@ -400,7 +390,7 @@ class DeviceDataCollector:
                 print(f"{matrix[idx_a][idx_b]:2} ", end="")
             print()
         
-        print("=" * 80 + "\n")
+        print("=" * num_cols + "\n")
     
     def print_all_phase_matrices(self, controller):
         print(f"\n{'='*50}")
