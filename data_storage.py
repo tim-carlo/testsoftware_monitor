@@ -295,9 +295,6 @@ class DeviceDataCollector:
         return matrix
     
     def print_connection_matrix(self, controller_a, controller_b):
-        """
-        Gibt die externe Connection Matrix formatiert aus
-        """
         matrix = self.create_connection_matrix(controller_a, controller_b)
         if matrix is None:
             return
@@ -309,8 +306,8 @@ class DeviceDataCollector:
         known_pins_a = get_known_pins(controller_a)
         known_pins_b = get_known_pins(controller_b)
         
-        pin_nums_a = [pin['pin'] for pin in device_a['pins'] if pin['pin'] in known_pins_a]
-        pin_nums_b = [pin['pin'] for pin in device_b['pins'] if pin['pin'] in known_pins_b]
+        pin_nums_a = sorted([pin['pin'] for pin in device_a['pins'] if pin['pin'] in known_pins_a])
+        pin_nums_b = sorted([pin['pin'] for pin in device_b['pins'] if pin['pin'] in known_pins_b])
         
         if not pin_nums_a or not pin_nums_b:
             return
@@ -395,7 +392,7 @@ class DeviceDataCollector:
         device = self.devices[controller]
         
         known_pins = get_known_pins(controller)
-        pin_nums = [pin['pin'] for pin in device['pins'] if pin['pin'] in known_pins]
+        pin_nums = sorted([pin['pin'] for pin in device['pins'] if pin['pin'] in known_pins])
         
         if not pin_nums:
             return
