@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from event_decoder import decode_event_type_one_hot, merge_handshake_events
-from pin_analyzer import analyze_all_pins
+from pin_analyzer import analyze_all_pins, analyze_pin
 import base64
 import hashlib
 import cbor2
@@ -440,28 +440,14 @@ class DeviceDataCollector:
     
     def _should_mask_connection(self, events, phase):
         """Mask connections for Strength 1 and -1 pins in specific phases"""
-        ev = set(events)
-        
-        # Strength 1 Pattern: 1, 1, 1, 0, 1, 0 (Naturally High, Weak)
-        is_strength_1 = all(x in ev for x in [
-            'STEP_1_A_HIGH', 'STEP_1_B_HIGH',
-            'STEP_2_A_HIGH', 'STEP_2_B_LOW',
-            'STEP_3_A_HIGH', 'STEP_3_B_LOW'
-        ])
-        
-        # Strength -1 Pattern: 0, 0, 1, 0, 1, 0 (Naturally Low, Weak)
-        is_strength_minus_1 = all(x in ev for x in [
-            'STEP_1_A_LOW', 'STEP_1_B_LOW',
-            'STEP_2_A_HIGH', 'STEP_2_B_LOW',
-            'STEP_3_A_HIGH', 'STEP_3_B_LOW'
-        ])
+        analysis = analyze_pin("TEMP", events)
         
         # Mask if Strength 1 (Naturally High) and phase is PULLUP (1) or DRIVE_HIGH (3)
-        if is_strength_1 and phase in (1, 3):
+        if "Strength 1" in analysis and phase in (1, 3):
             return True
             
         # Mask if Strength -1 (Naturally Low) and phase is PULLDOWN (0) or DRIVE_LOW (2)
-        if is_strength_minus_1 and phase in (0, 2):
+        if "Strength -1" in analysis and phase in (0, 2):
             return True
             
         return False
