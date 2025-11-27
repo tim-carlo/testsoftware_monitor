@@ -51,8 +51,6 @@ PHASE_NAMES = {
     5: "ALLPULLDOWN_HIGH"
 }
 
-NUMBER_OF_EXPECTED_DEVICES_FOR_COMPLETION = 1
-
 # Pin Name Mappings for NRF52840
 NRF52840_PIN_NAMES = {
     21: "GPIO0_UART_RX",
@@ -181,8 +179,6 @@ class DeviceDataCollector:
         self.current_device_family = None
         self.output_file = None
         self.original_stdout = None
-        self.device_uuid = None
-        self.expected_devices = 1
         self.capture_started = False
 
     # ===== Helper Methods =====
@@ -228,13 +224,8 @@ class DeviceDataCollector:
 
         # Print received hash (Device Version)
         git_commit_hash = header_data.get(HEADER_KEY_VERSION, None)
-        print(f"Received Device Version: {git_commit_hash}")
-
-        # Get device UUID for filename
-        self.device_uuid = header_data.get(HEADER_KEY_DEVICE_UUID, "UNKNOWN")
 
         self.current_device_family = device_family
-        self.expected_devices = header_data.get(HEADER_KEY_NUMBER_SEEN_DEVICES, 1)
 
         # Clear existing data for this device_family when new header received
         self.devices[device_family] = {
@@ -246,10 +237,9 @@ class DeviceDataCollector:
             'raw_session_chunks': {}, # session_id -> {chunk_id -> raw_bytes}
             'complete': False,
             'saved': False,
-            'uuid': self.device_uuid,
+            'uuid': header_data.get(HEADER_KEY_DEVICE_UUID, "UNKNOWN"),
             'git_commit': git_commit_hash
         }
-        print(f"🔄 Reset data for device_family {device_family} (Device Version: {git_commit_hash})")
         return True
     
     def process_chunk(self, chunk_result):
@@ -357,11 +347,14 @@ class DeviceDataCollector:
     
     def _start_output_capture(self, device_family=None, device_uuid=None):
         """Start capturing output to file"""
-        if device_uuid is None:
-            device_uuid = self.device_uuid if self.device_uuid else "UNKNOWN"
-        
         if device_family is None:
             device_family = self.current_device_family if self.current_device_family is not None else "UNKNOWN"
+
+        if device_uuid is None:
+            if device_family in self.devices:
+                device_uuid = self.devices[device_family].get('uuid', "UNKNOWN")
+            else:
+                device_uuid = "UNKNOWN"
         
         import os
         os.makedirs("logs", exist_ok=True)
@@ -464,13 +457,12 @@ class DeviceDataCollector:
                 self.save_device_report(family)
                 device['saved'] = True
         
-        # Return true if ALL expected devices are complete (for legacy check)
-        return sum(1 for d in self.devices.values() if d['complete']) >= self.expected_devices
+        return False
         
     
     def manual_save(self):
         """Manual save triggered by 's' command"""
-        self._start_output_capture()
+        self._start_output_capture("ALL", "DEVICES")
         print(f"💾 Manual save")
         self.print_connections_summary()
         for device_family in sorted(self.devices.keys()):
