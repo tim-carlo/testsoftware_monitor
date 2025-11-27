@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Pin Analyzer - Classifies pins based on 3-step force measurement
+Pin Analyzer
 """
 
-def analyze_pin(pin_name, events):
+def analyze_pin(events):
     ev = set(events)
     # Order: Stage 1 N/P, Stage 2 N/P, Stage 3 N/P
     checks = [
@@ -43,5 +43,5 @@ def analyze_pin(pin_name, events):
     return None
 
 def analyze_all_pins(device_pins):
-    return [analyze_pin(str(p.get('pin', '?')), p.get('events', [])) for p in device_pins]
+    return [analyze_pin(p.get('events', [])) for p in device_pins]
 

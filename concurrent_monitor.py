@@ -7,11 +7,11 @@ import threading
 import queue
 import sys
 import select
-from event_decoder import decode_result, format_event_list, merge_handshake_events, decode_event_type_one_hot
+from event_decoder import decode_result, format_event_list, decode_event_type_one_hot
 from data_storage import DeviceDataCollector
 
 # Configuration
-PORT = "/dev/tty.usbmodem1102"
+PORT = "/dev/tty.usbmodem11102"
 BAUDRATE = 9600
 
 # Protocol identifiers (4 bytes each, little endian)
@@ -42,57 +42,27 @@ def send_ack(ser, received_hash):
     except Exception as e:
         print(f"❌ ACK send failed: {e}")
 
-def parse_header_packet(hex_data):
-    """Parse CBOR header packet: [LENGTH][CBOR][CRC]"""
+def parse_packet(hex_data, has_packet_id=False):
+    """Parse CBOR packet: [PACKET_ID?][LENGTH][CBOR][CRC]"""
     try:
+        offset = 0
+        packet_id = -1
+        
+        if has_packet_id:
+            packet_id = int.from_bytes(bytes.fromhex(hex_data[:8]), "little")
+            offset = 4
+            
         # Extract length (2 bytes, little endian)
-        length = int.from_bytes(bytes.fromhex(hex_data[:4]), "little")
+        length = int.from_bytes(bytes.fromhex(hex_data[offset*2:offset*2+4]), "little")
         
         # Extract CBOR data
-        cbor_hex = hex_data[4:4 + length * 2]
+        cbor_start = offset*2 + 4
+        cbor_end = cbor_start + length * 2
+        cbor_hex = hex_data[cbor_start:cbor_end]
         cbor_bytes = bytes.fromhex(cbor_hex)
         
         # Extract hash (4 bytes at end)
-        hash_hex = hex_data[4 + length * 2:4 + length * 2 + 8]
-        received_hash = int.from_bytes(bytes.fromhex(hash_hex), "little")
-        
-        # Verify hash
-        calculated_hash = calculate_crc(cbor_bytes)
-        hash_valid = received_hash == calculated_hash
-        
-        # Decode CBOR
-        try:
-            decoded = cbor2.loads(cbor_bytes)
-        except:
-            decoded = {"error": "cbor decode failed"}
-        
-        return {
-            "ack_requested": decoded.get(ACK_REQUESTED, 0),
-            "data": decoded,
-            "hash_valid": hash_valid,
-            "received_hash": received_hash,
-            "calculated_hash": calculated_hash,
-            "raw_bytes": cbor_bytes
-        }
-    except Exception as e:
-        print(f"Parse header error: {e}")
-        return None
-
-def parse_chunk_packet(hex_data):
-    """Parse CBOR chunk packet: [PACKET_ID][LENGTH][CBOR][CRC]"""
-    try:
-        # Extract packet ID (1 byte)
-        packet_id = int.from_bytes(bytes.fromhex(hex_data[:2]), "little")
-        
-        # Extract length (2 bytes, little endian)
-        length = int.from_bytes(bytes.fromhex(hex_data[2:6]), "little")
-        
-        # Extract CBOR data
-        cbor_hex = hex_data[6:6 + length * 2]
-        cbor_bytes = bytes.fromhex(cbor_hex)
-        
-        # Extract hash (4 bytes at end)
-        hash_hex = hex_data[6 + length * 2:6 + length * 2 + 8]
+        hash_hex = hex_data[cbor_end:cbor_end + 8]
         received_hash = int.from_bytes(bytes.fromhex(hash_hex), "little")
         
         # Verify hash
@@ -115,7 +85,7 @@ def parse_chunk_packet(hex_data):
             "raw_bytes": cbor_bytes
         }
     except Exception as e:
-        print(f"Parse chunk error: {e}")
+        print(f"Parse packet error: {e}")
         return None
 
 def serial_reader(ser, data_queue, stop_event):
@@ -134,7 +104,7 @@ def serial_reader(ser, data_queue, stop_event):
             print(f"Reader error: {e}")
             break
     
-    print("📡 Serial reader stopped")
+    print("Serial reader stopped")
 
 def packet_processor(ser, data_queue, stop_event, collector):
     """Process 2: Process incoming data and handle protocol"""
@@ -190,7 +160,7 @@ def packet_processor(ser, data_queue, stop_event, collector):
                     print("=== Header End ===")
                     receiving_header = False
                     if packet_data:
-                        result = parse_header_packet(packet_data.hex())
+                        result = parse_packet(packet_data.hex(), has_packet_id=False)
                         
                         # Debug: Print CBOR structure with keys
                         data = result.get('data', {})
@@ -219,7 +189,7 @@ def packet_processor(ser, data_queue, stop_event, collector):
                 elif buffer[:4] == CHUNK_END:
                     receiving_chunk = False
                     if packet_data:
-                        result = parse_chunk_packet(packet_data.hex())
+                        result = parse_packet(packet_data.hex(), has_packet_id=True)
                         if result:
                             # Debug: Print CBOR structure with keys
                             data = result.get('data', {})
@@ -256,6 +226,29 @@ def packet_processor(ser, data_queue, stop_event, collector):
     
     print("Packet processor stopped")
 
+def offline_mode(filename):
+    """Run in offline mode loading data from XML"""
+    collector = DeviceDataCollector()
+    if collector.load_from_xml(filename):
+        print("✅ Data loaded. Entering offline command mode.")
+        print("Press 'v' to visualize, 's' to save report, 'q' to quit")
+        
+        while True:
+            try:
+                cmd = input("Command (v/s/q): ").strip().lower()
+                if cmd == 'v':
+                    collector.visualize_matrices()
+                elif cmd == 's':
+                    collector.manual_save()
+                elif cmd == 'q':
+                    break
+            except KeyboardInterrupt:
+                break
+            except EOFError:
+                break
+    else:
+        print("❌ Failed to load data.")
+
 def monitor_serial():
     """Concurrent serial monitor with two threads"""
     print(f"Opening {PORT} at {BAUDRATE} baud...")
@@ -267,7 +260,7 @@ def monitor_serial():
         stop_event = threading.Event()
         
         print("Starting concurrent monitoring...")
-        print("Press 's' to save, 'r' to save raw XML")
+        print("Press 's' to save, 'r' to save raw XML, 'v' to visualize")
         
         reader_thread = threading.Thread(
             target=serial_reader,
@@ -295,6 +288,8 @@ def monitor_serial():
                         collector.manual_save()
                     elif cmd == 'r':
                         collector.save_raw_xml()
+                    elif cmd == 'v':
+                        collector.visualize_matrices()
                     elif cmd == 'q':
                         break
                 
@@ -303,7 +298,7 @@ def monitor_serial():
                     break
                     
         except KeyboardInterrupt:
-            print("\n🛑 Stopping...")
+            print("\nStopping...")
             
         finally:
             # Stop threads gracefully
@@ -316,4 +311,7 @@ def monitor_serial():
             print("Monitor stopped")
 
 if __name__ == "__main__":
-    monitor_serial()
+    if len(sys.argv) > 1:
+        offline_mode(sys.argv[1])
+    else:
+        monitor_serial()

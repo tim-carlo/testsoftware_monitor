@@ -1,5 +1,6 @@
 /logs/
 /raw_data/
+/visualization/
 .vscode/
 .DS_Store
 __pycache__/

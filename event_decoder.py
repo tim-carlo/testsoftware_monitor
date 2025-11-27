@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 """Event Decoder for CBOR Serial Monitor
-
-Decodes one-hot encoded event integers into human-readable event names.
-Supports the device event enum (24 events) and scans a full 32-bit mask.
 """
 
 # Pin Event Type definitions (indexes must match device enum)
@@ -38,8 +35,6 @@ PIN_EVENT_TYPES = {
 
 def decode_event_type_one_hot(event_bits):
     """Return list of event names for bits set in event_bits.
-
-    Scans bits 0..31 (inclusive) to support full 32-bit masks.
     """
     events = []
     for bit_position in range(32):
@@ -48,27 +43,6 @@ def decode_event_type_one_hot(event_bits):
             events.append(event_name)
     return events
 
-def merge_handshake_events(events):
-    merged = []
-    has_initiator = "HANDSHAKE_OK_INITIATOR" in events
-    has_responder = "HANDSHAKE_OK_RESPONDER" in events
-    
-    # Add HANDSHAKE_OK if both initiator and responder are present
-    if has_initiator and has_responder:
-        merged.append("HANDSHAKE_OK")
-    
-    # Add all other events (excluding the individual handshake events)
-    for event in events:
-        if event not in ["HANDSHAKE_OK_INITIATOR", "HANDSHAKE_OK_RESPONDER"]:
-            merged.append(event)
-        elif has_initiator and not has_responder and event == "HANDSHAKE_OK_INITIATOR":
-            # Keep initiator if responder is not present
-            merged.append(event)
-        elif has_responder and not has_initiator and event == "HANDSHAKE_OK_RESPONDER":
-            # Keep responder if initiator is not present
-            merged.append(event)
-    
-    return merged
 def encode_event_list(events):
     """Encode a list of event names back into one-hot encoded integer."""
     event_bits = 0
@@ -97,10 +71,8 @@ def decode_result(result):
     # Decode one-hot encoded events
     events = decode_event_type_one_hot(event_bits)
     
-    # Merge handshake events
-    merged_events = merge_handshake_events(events)
-    
-    return merged_events
+    # Return raw events without merging handshakes
+    return events
 
 
 def format_event_list(events):

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import pandas as pd
 
-from event_decoder import decode_event_type_one_hot, merge_handshake_events
+from event_decoder import decode_event_type_one_hot, PIN_EVENT_TYPES
 from pin_analyzer import analyze_all_pins, analyze_pin
 import base64
 import hashlib
@@ -124,6 +124,7 @@ MSP430_PIN_NAMES = {
     27: "THRCTRL_H1", # P3.3
     50: "THRCTRL_L0", # P6.2
     56: "THRCTRL_L1", # P7.0
+    59: "RTC_INT",    # P7.3
 }
 
 def get_pin_name(device_family, pin_num):
@@ -197,6 +198,23 @@ class DeviceDataCollector:
             df.to_csv(filename)
         return df
     
+    def _save_heatmap(self, df, filename, cmap, xlabel, ylabel, annot=True, fmt='g', vmin=None, vmax=None, legend_handles=None, figsize=(12, 10)):
+        import seaborn as sns
+        import matplotlib.pyplot as plt
+        
+        plt.figure(figsize=figsize)
+        sns.heatmap(df, annot=annot, cmap=cmap, cbar=False, fmt=fmt, vmin=vmin, vmax=vmax)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        
+        if legend_handles:
+             plt.legend(handles=legend_handles, loc='upper left', bbox_to_anchor=(0, -0.2))
+             
+        plt.tight_layout()
+        plt.savefig(filename, bbox_inches='tight')
+        plt.close()
+        print(f"  Saved: {filename}")
+
     # ===== Data Processing Methods =====
     
     def process_header(self, header_result):
@@ -258,7 +276,7 @@ class DeviceDataCollector:
         
         for pin_entry in chunk_data.get(KEY_PINS, []):
             events_raw = pin_entry.get(KEY_EVENTS, 0)
-            events = merge_handshake_events(decode_event_type_one_hot(events_raw)) if events_raw else []
+            events = decode_event_type_one_hot(events_raw) if events_raw else []
             
             if "EXCEEDS_CONNECTION_LIMIT" in events:
                 pin_name = get_pin_name(self.current_device_family, pin_entry.get(KEY_PIN))
@@ -304,7 +322,7 @@ class DeviceDataCollector:
         return True
     
     def _filter_weak_connections(self, device_family):
-        """Remove WEAK naturally driven connections after all pins are loaded"""
+        """Mark connections that are disturbed"""
         device = self.devices.get(device_family)
         if not device:
             return
@@ -314,7 +332,6 @@ class DeviceDataCollector:
         
         # Filter connections for each pin
         for pin in device['pins']:
-            filtered_connections = []
             for conn in pin['connections']:
                 conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                 if conn_type == CONNECTION_TYPE_INTERNAL:
@@ -326,13 +343,13 @@ class DeviceDataCollector:
                     target_events = pin_events.get(other_pin, [])
                     target_masked = self._should_mask_connection(target_events, phase)
                     
-                    # Keep connection only if neither is masked
-                    if not source_masked and not target_masked:
-                        filtered_connections.append(conn)
+                    # Mark connection if either is masked
+                    if source_masked or target_masked:
+                        conn['masked'] = True
+                    else:
+                        conn['masked'] = False
                 else:
-                    filtered_connections.append(conn)
-            
-            pin['connections'] = filtered_connections
+                    conn['masked'] = False
     
     def get_all_devices(self):
         return self.devices
@@ -413,6 +430,8 @@ class DeviceDataCollector:
         for pin in device['pins']:
             pin_name = get_pin_name(device_family, pin['pin'])
             for conn in pin['connections']:
+                if conn.get('masked', False):
+                    continue
                 conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                 param = conn.get(KEY_CONNECTION_PARAMETER, 0)
                 other_pin_name = get_pin_name(device_family, conn.get(KEY_OTHER_PIN))
@@ -463,7 +482,6 @@ class DeviceDataCollector:
         self.run_pin_analysis()
         self._stop_output_capture()
     
-    # ===== Output Display Methods =====
     
     def print_connections_summary(self):
         print("\n=== Pin Connections ===")
@@ -472,6 +490,8 @@ class DeviceDataCollector:
             for pin in device_data['pins']:
                 pin_name = get_pin_name(device_family, pin['pin'])
                 for conn in pin['connections']:
+                    if conn.get('masked', False):
+                        continue
                     conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                     param = conn.get(KEY_CONNECTION_PARAMETER, 0)
                     other_pin_name = get_pin_name(device_family, conn.get(KEY_OTHER_PIN))
@@ -578,10 +598,8 @@ class DeviceDataCollector:
         if df is None:
             return
         self._save_matrix(df, f"External Connection Matrix: Device {controller_a} -> Device {controller_b}", filename)
-    
-    # Remove old list-based phase matrix implementation (replaced by pandas version below)
-    
-    def create_phase_matrix(self, controller, phase):
+        
+    def create_phase_matrix(self, controller, phase, include_masked=False):
         if controller not in self.devices:
             print(f"❌ Controller {controller} not found")
             return None
@@ -604,9 +622,11 @@ class DeviceDataCollector:
             pin_name_a = get_pin_name(controller, pin['pin'])
             error_event = phase_error_events.get(phase)
             pin_works = error_event and error_event not in pin['events']
-            should_mask = self._should_mask_connection(pin['events'], phase)
-            if pin_works and not should_mask:
+            
+            # Diagonal elements (self-check) are never masked
+            if pin_works:
                 df.at[pin_name_a, pin_name_a] = 1
+
             for conn in pin['connections']:
                 conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                 if conn_type == CONNECTION_TYPE_INTERNAL:
@@ -614,7 +634,11 @@ class DeviceDataCollector:
                     pin_name_b = get_pin_name(controller, conn.get(KEY_OTHER_PIN))
                     if conn_phase == phase and pin_name_b in labels:
                         if pin_works:
-                            df.at[pin_name_a, pin_name_b] = 1
+                            is_masked = conn.get('masked', False)
+                            if not is_masked:
+                                df.at[pin_name_a, pin_name_b] = 1
+                            elif include_masked:
+                                df.at[pin_name_a, pin_name_b] = 2
         return df
 
     def print_phase_matrix(self, controller, phase, filename=None):
@@ -683,4 +707,234 @@ class DeviceDataCollector:
         tree = ET.ElementTree(root)
         tree.write(filename, encoding="utf-8", xml_declaration=True)
         print(f"💾 Raw XML saved to: {filename}")
+
+    def visualize_matrices(self):
+        """Visualize all matrices as heatmaps and save to PNG"""
+        try:
+            import seaborn as sns
+            import matplotlib.pyplot as plt
+            import matplotlib.ticker as ticker
+            import matplotlib.patches as mpatches
+        except ImportError:
+            print("❌ Visualization requires seaborn and matplotlib. Please install them: pip install seaborn matplotlib")
+            return
+
+        import os
+        timestamp = datetime.now().strftime("%Y_%m_%d_%H_%M_%S")
+        base_dir = f"visualization/viz_{timestamp}"
+        os.makedirs(base_dir, exist_ok=True)
+        print(f"Generating visualizations in: {base_dir}")
+
+        for device_family in sorted(self.devices.keys()):
+            # External connection matrices
+            for other_device in sorted(self.devices.keys()):
+                if device_family != other_device:
+                    df = self.create_connection_matrix(device_family, other_device)
+                    if df is not None and not df.empty:
+                        filename = f"{base_dir}/matrix_external_{device_family}_to_{other_device}.png"
+                        self._save_heatmap(df, filename, "Blues", "Pin", "Pin")
+
+            # Phase matrices
+            for phase in range(6):
+                df = self.create_phase_matrix(device_family, phase, include_masked=True)
+                if df is not None and not df.empty:
+                    # Custom colormap: 0=White, 1=Green, 2=Red
+                    from matplotlib.colors import ListedColormap
+                    cmap = ListedColormap(['white', '#2ca02c', '#d62728'])
+                    
+                    legend_handles = [
+                        mpatches.Patch(facecolor='white', label='0: Unchanged', edgecolor='lightgray'),
+                        mpatches.Patch(color='#2ca02c', label='1: Changed (Valid)'),
+                        mpatches.Patch(color='#d62728', label='2: Masked')
+                    ]
+                    
+                    filename = f"{base_dir}/matrix_phase_{phase}_{device_family}.png"
+                    self._save_heatmap(df, filename, cmap, "Measured Pin", "Changed Pin", 
+                                     vmin=0, vmax=2, legend_handles=legend_handles)
+
+            # Phase matrices
+            for phase in range(6):
+                df = self.create_phase_matrix(device_family, phase, include_masked=True)
+                if df is not None and not df.empty:
+                    # Custom colormap: 0=White, 1=Green, 2=Red
+                    from matplotlib.colors import ListedColormap
+                    cmap = ListedColormap(['white', '#2ca02c', '#d62728']) # White, Green, Red
+                    
+                    legend_handles = [
+                        mpatches.Patch(facecolor='white', label='0: Unchanged', edgecolor='lightgray'),
+                        mpatches.Patch(color='#2ca02c', label='1: Changed'),
+                        mpatches.Patch(color='#d62728', label='2: Masked')
+                    ]
+                    
+                    self._save_heatmap(df, f"{base_dir}/matrix_phase_{phase}_{device_family}.png", cmap, "Measured Pin", "Changed Pin", annot=True, fmt='g', vmin=0, vmax=2, legend_handles=legend_handles)
+
+            # Pin Strength Bar Chart
+            pin_names = []
+            pin_strengths = []
+            device_data = self.devices[device_family]
+            
+            # Get all pins sorted
+            sorted_pins = get_all_pins_sorted(device_family, device_data)
+            
+            for pin_num in sorted_pins:
+                pin_name = get_pin_name(device_family, pin_num)
+                # Find pin data
+                pin_entry = next((p for p in device_data['pins'] if p['pin'] == pin_num), None)
+                if pin_entry:
+                    events = pin_entry.get('events', [])
+                    strength = analyze_pin(pin_name, events)
+                    pin_names.append(pin_name)
+                    pin_strengths.append(strength)
+            
+            if pin_names:
+                plt.figure(figsize=(15, 8))
+                
+                # Plot bars manually
+                x_pos = range(len(pin_names))
+                for i, strength in enumerate(pin_strengths):
+                    if strength is None:
+                        # Undefined: Blue bar from -6 to 6
+                        plt.bar(i, 12, bottom=-6, color='blue', alpha=0.3, width=0.8)
+                    else:
+                        # Defined: Red/Green bar from 0 to strength
+                        color = 'red' if strength < 0 else 'green'
+                        plt.bar(i, strength, color=color, width=0.8)
+                
+                plt.axhline(0, color='black', linewidth=0.8)
+                plt.grid(axis='y', linestyle='--', alpha=0.7)
+                plt.gca().yaxis.set_major_locator(ticker.MultipleLocator(1))
+                plt.ylim(-6, 6)
+                plt.xticks(x_pos, pin_names, rotation=90)
+                plt.ylabel("Strength")
+                plt.xlabel("Pin")
+                # plt.title(f"Pin Strengths - Device {device_family}")
+
+                # Legend for Strength
+                legend_handles = [
+                    mpatches.Patch(color='green', label='Positive Force'),
+                    mpatches.Patch(color='red', label='Negative Force'),
+                    mpatches.Patch(color='blue', alpha=0.3, label='Undefined')
+                ]
+                plt.legend(handles=legend_handles, loc='upper right')
+
+                plt.tight_layout()
+                filename = f"{base_dir}/strength_chart_{device_family}.png"
+                plt.savefig(filename)
+                plt.close()
+                print(f"  Saved: {filename}")
+
+            # Event Matrix
+            df_events = self.create_event_matrix(device_family)
+            if df_events is not None and not df_events.empty:
+                width = max(12, len(df_events.columns) * 0.4)
+                height = max(10, len(df_events.index) * 0.4)
+                
+                annot_df = df_events.map(lambda x: 'X' if x == 1 else '')
+                
+                from matplotlib.colors import ListedColormap
+                cmap_events = ListedColormap(['white', '#ff7f0e'])
+                
+                legend_handles = [
+                    mpatches.Patch(facecolor='white', label='Not Occurred', edgecolor='lightgray'),
+                    mpatches.Patch(color='#ff7f0e', label='Occurred')
+                ]
+                
+                filename = f"{base_dir}/matrix_events_{device_family}.png"
+                self._save_heatmap(df_events, filename, cmap_events, "Event", "Pin", 
+                                 annot=annot_df, fmt='', vmin=0, vmax=1, 
+                                 legend_handles=legend_handles, figsize=(width, height))
+        
+        print(f"✅ Visualization complete")
+
+    def create_event_matrix(self, device_family):
+        """Create a matrix of Pins vs Events"""
+        if device_family not in self.devices:
+            return None
+        
+        device_data = self.devices[device_family]
+        sorted_pins = get_all_pins_sorted(device_family, device_data)
+        
+        # Get all possible events
+        all_events = sorted(list(set(list(PIN_EVENT_TYPES.values()))))
+        
+        # Create DataFrame
+        pin_labels = [get_pin_name(device_family, p) for p in sorted_pins]
+        df = pd.DataFrame(0, index=pin_labels, columns=all_events)
+        
+        # Fill DataFrame
+        for pin_num in sorted_pins:
+            pin_name = get_pin_name(device_family, pin_num)
+            pin_entry = next((p for p in device_data['pins'] if p['pin'] == pin_num), None)
+            
+            if pin_entry:
+                events = pin_entry.get('events', [])
+                for event in events:
+                    if event in df.columns:
+                        df.at[pin_name, event] = 1
+        
+        
+        return df
+
+    def load_from_xml(self, filename):
+        """Load data from an XML file generated by save_raw_xml"""
+        import xml.etree.ElementTree as ET
+        import base64
+        import cbor2
+        
+        try:
+            tree = ET.parse(filename)
+            root = tree.getroot()
+        except Exception as e:
+            print(f"❌ Failed to parse XML file: {e}")
+            return False
+
+        print(f"📂 Loading data from {filename}...")
+        
+        # Reset current state
+        self.devices = {}
+        self.current_device_family = None
+        
+        devices_elem = root.find("Devices")
+        if devices_elem is None:
+            print("❌ No Devices found in XML")
+            return False
+            
+        for device_elem in devices_elem.findall("Device"):
+            family = device_elem.get("Family")
+            uuid = device_elem.get("UUID")
+            print(f"  Found Device Family: {family}, UUID: {uuid}")
+            
+            # Process Header first
+            header_elem = device_elem.find("RawData[@Type='Header']")
+            if header_elem is not None:
+                raw_bytes = base64.b64decode(header_elem.text)
+                try:
+                    data = cbor2.loads(raw_bytes)
+                    header_result = {
+                        'hash_valid': True,
+                        'data': data,
+                        'raw_bytes': raw_bytes
+                    }
+                    self.process_header(header_result)
+                except Exception as e:
+                    print(f"    ❌ Failed to decode header: {e}")
+                    continue
+            
+            # Process Chunks
+            for chunk_elem in device_elem.findall("RawData[@Type='Chunk']"):
+                raw_bytes = base64.b64decode(chunk_elem.text)
+                try:
+                    data = cbor2.loads(raw_bytes)
+                    chunk_result = {
+                        'hash_valid': True,
+                        'data': data,
+                        'raw_bytes': raw_bytes,
+                        'packet_id': int(chunk_elem.get("ChunkId", -1))
+                    }
+                    self.process_chunk(chunk_result)
+                except Exception as e:
+                    print(f"    ❌ Failed to decode chunk: {e}")
+        
+        print("✅ Data loaded successfully")
+        return True
 

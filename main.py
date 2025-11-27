@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-"""
-Simplified main entry point
-"""
-
-def main():
-    print("Starting CBOR Serial Monitor (Concurrent Version)...")
-    
-    # Use the concurrent monitor
-    import concurrent_monitor
-    concurrent_monitor.monitor_serial()
+import sys
+import concurrent_monitor
 
 if __name__ == "__main__":
-    main()
+    print("Starting Serial Monitor")
+    
+    if len(sys.argv) > 1:
+        concurrent_monitor.offline_mode(sys.argv[1])
+    else:
+        concurrent_monitor.monitor_serial()
