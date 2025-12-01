@@ -1,6 +1,22 @@
-# Shepherd Serial Monitor
+# TestFramework Serial Monitor
 
 A specialized serial monitor and analysis tool for Shepherd targets. It handles real-time data monitoring, matrix calculations, and XML data management.
+
+## Installation & Setup
+
+This project uses **Poetry** for dependency management and virtual environments.
+
+1.  **Install dependencies:**
+
+    ```bash
+    poetry install
+    ```
+
+2.  **Activate the virtual environment:**
+
+    ```bash
+    poetry shell
+    ```
 
 ## Configuration
 
@@ -11,7 +27,7 @@ To adjust the serial connection settings, edit `concurrent_monitor.py`:
 
 ## Usage
 
-You can run the application in two modes via `main.py`:
+Ensure your virtual environment is active (via `poetry shell`) or prepend `poetry run` to the commands below.
 
 ### 1\. Live Monitor Mode
 
@@ -28,6 +44,14 @@ Loads and analyzes a previously saved XML dataset.
 ```bash
 python main.py raw_data/my_data.xml
 ```
+
+## Interactive Commands
+
+The following commands are available in both Live and File Analysis modes:
+
+  * **'s':** Save the entire output log to a `.txt` file.
+  * **'r':** Save the raw data as an XML file.
+  * **'v':** Visualize the data (generates charts using pandas).
 
 ## Core Logic (data\_storage.py)
 
