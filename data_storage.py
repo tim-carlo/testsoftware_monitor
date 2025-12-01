@@ -270,7 +270,7 @@ class DeviceDataCollector:
             
             if "EXCEEDS_CONNECTION_LIMIT" in events:
                 pin_name = get_pin_name(self.current_device_family, pin_entry.get(KEY_PIN))
-                print(f"⚠️ WARNING: Pin {pin_name} exceeded connection limit!")
+                print(f"WARNING: Pin {pin_name} exceeded connection limit!")
 
             pin_num = pin_entry.get(KEY_PIN)
             new_connections = [{KEY_OTHER_PIN: c.get(KEY_OTHER_PIN), 
@@ -363,7 +363,7 @@ class DeviceDataCollector:
         filename = f"logs/output_{device_family}_{device_uuid}_{timestamp}.txt"
         
         self.output_file = open(filename, 'w', encoding='utf-8')
-        print(f"📝 Saving to: {filename}")
+        print(f"Saving to: {filename}")
         
         self.original_stdout = sys.stdout
         sys.stdout = TeeOutput(self.output_file)
@@ -373,7 +373,7 @@ class DeviceDataCollector:
         if self.output_file:
             sys.stdout = self.original_stdout
             self.output_file.close()
-            print(f"✅ File saved")
+            print(f"File saved")
     
     def save_device_report(self, device_family):
         """Save report for a specific device"""
@@ -384,7 +384,7 @@ class DeviceDataCollector:
         self._start_output_capture(device_family, device.get('uuid'))
 
         if self.original_stdout:
-            self.original_stdout.write(f"✅ Collection complete for Device {device_family}\n")
+            self.original_stdout.write(f"Collection complete for Device {device_family}\n")
 
         # Print Git commit version
         print(f"Device Version: {device.get('git_commit', 'UNKNOWN')}")
@@ -463,7 +463,7 @@ class DeviceDataCollector:
     def manual_save(self):
         """Manual save triggered by 's' command"""
         self._start_output_capture("ALL", "DEVICES")
-        print(f"💾 Manual save")
+        print(f"Manual save")
         self.print_connections_summary()
         for device_family in sorted(self.devices.keys()):
             for other_device in sorted(self.devices.keys()):
@@ -513,7 +513,7 @@ class DeviceDataCollector:
                 if events:
                     print(f"  {pin_name}: {', '.join(events)} (Mask: {mask})")
                     if "EXCEEDS_CONNECTION_LIMIT" in events:
-                        print(f"  ⚠️  WARNING: Connection limit exceeded for this pin!")
+                        print(f"  WARNING: Connection limit exceeded for this pin!")
                 else:
                     print(f"  {pin_name}: No events (Mask: {mask})")
         print("="*23 + "\n")
@@ -551,7 +551,7 @@ class DeviceDataCollector:
     
     
     def _should_mask_connection(self, events, phase):
-        strength = analyze_pin("TEMP", events)
+        strength = analyze_pin(events)
         if strength is None or strength == 0:
             return False
         # Mask pins with strength >= 1 in phases 1 and 3
@@ -564,7 +564,7 @@ class DeviceDataCollector:
     
     def create_connection_matrix(self, controller_a, controller_b):
         if controller_a not in self.devices or controller_b not in self.devices:
-            print(f"❌ Controller {controller_a} or {controller_b} not found")
+            print(f"Controller {controller_a} or {controller_b} not found")
             return None
         device_a = self.devices[controller_a]
         device_b = self.devices[controller_b]
@@ -593,10 +593,10 @@ class DeviceDataCollector:
         
     def create_phase_matrix(self, controller, phase, include_masked=False):
         if controller not in self.devices:
-            print(f"❌ Controller {controller} not found")
+            print(f"Controller {controller} not found")
             return None
         if not 0 <= phase <= 5:
-            print(f"❌ Invalid phase {phase}. Must be between 0 and 5")
+            print(f"Invalid phase {phase}. Must be between 0 and 5")
             return None
         device = self.devices[controller]
         pins = [pin['pin'] for pin in device['pins']]
@@ -698,7 +698,7 @@ class DeviceDataCollector:
             ET.indent(root, space="  ", level=0)
         tree = ET.ElementTree(root)
         tree.write(filename, encoding="utf-8", xml_declaration=True)
-        print(f"💾 Raw XML saved to: {filename}")
+        print(f"Raw XML saved to: {filename}")
 
     def visualize_matrices(self):
         """Visualize all matrices as heatmaps and save to PNG"""
@@ -708,7 +708,7 @@ class DeviceDataCollector:
             import matplotlib.ticker as ticker
             import matplotlib.patches as mpatches
         except ImportError:
-            print("❌ Visualization requires seaborn and matplotlib. Please install them: pip install seaborn matplotlib")
+            print("Visualization requires seaborn and matplotlib. Please install them: pip install seaborn matplotlib")
             return
 
         import os
@@ -836,7 +836,7 @@ class DeviceDataCollector:
                                  annot=annot_df, fmt='', vmin=0, vmax=1, 
                                  legend_handles=legend_handles, figsize=(width, height))
         
-        print(f"✅ Visualization complete")
+        print(f"Visualization complete")
 
     def create_event_matrix(self, device_family):
         """Create a matrix of Pins vs Events"""
@@ -877,10 +877,10 @@ class DeviceDataCollector:
             tree = ET.parse(filename)
             root = tree.getroot()
         except Exception as e:
-            print(f"❌ Failed to parse XML file: {e}")
+            print(f"Failed to parse XML file: {e}")
             return False
 
-        print(f"📂 Loading data from {filename}...")
+        print(f"Loading data from {filename}...")
         
         # Reset current state
         self.devices = {}
@@ -888,13 +888,13 @@ class DeviceDataCollector:
         
         devices_elem = root.find("Devices")
         if devices_elem is None:
-            print("❌ No Devices found in XML")
+            print("No Devices found in XML")
             return False
             
         for device_elem in devices_elem.findall("Device"):
             family = device_elem.get("Family")
             uuid = device_elem.get("UUID")
-            print(f"  Found Device Family: {family}, UUID: {uuid}")
+            print(f"Found Device Family: {family}, UUID: {uuid}")
             
             # Process Header first
             header_elem = device_elem.find("RawData[@Type='Header']")
@@ -909,7 +909,7 @@ class DeviceDataCollector:
                     }
                     self.process_header(header_result)
                 except Exception as e:
-                    print(f"    ❌ Failed to decode header: {e}")
+                    print(f"    Failed to decode header: {e}")
                     continue
             
             # Process Chunks
@@ -925,8 +925,8 @@ class DeviceDataCollector:
                     }
                     self.process_chunk(chunk_result)
                 except Exception as e:
-                    print(f"    ❌ Failed to decode chunk: {e}")
+                    print(f"    Failed to decode chunk: {e}")
         
-        print("✅ Data loaded successfully")
+        print("Data loaded successfully")
         return True
 

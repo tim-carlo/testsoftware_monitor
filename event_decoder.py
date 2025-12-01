@@ -57,7 +57,7 @@ def encode_event_list(events):
 
 def decode_result(result):
     if not result or not result.get('hash_valid'):
-        print("⚠️ Invalid or corrupted result")
+        print("Invalid or corrupted result")
         return []
     
     data = result.get('data', {})

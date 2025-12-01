@@ -38,9 +38,9 @@ def send_ack(ser, received_hash):
         ack_data.extend(ACK_END.to_bytes(4, 'little'))
         
         ser.write(ack_data)
-        print(f"✅ ACK sent for crc: 0x{received_hash:08X}")
+        print(f"ACK sent for crc: 0x{received_hash:08X}")
     except Exception as e:
-        print(f"❌ ACK send failed: {e}")
+        print(f"ACK send failed: {e}")
 
 def parse_packet(hex_data, has_packet_id=False):
     """Parse CBOR packet: [PACKET_ID?][LENGTH][CBOR][CRC]"""
@@ -132,7 +132,7 @@ def packet_processor(ser, data_queue, stop_event, collector):
                             line_text = debug_buffer.decode('utf-8', errors='ignore').strip()
                             # Only print if it starts with DEBUG:
                             if line_text.startswith("DEBUG:"):
-                                print(f"🕹️ {line_text}")
+                                print(f"{line_text}")
                         except:
                             pass
                         debug_buffer.clear()  # Clear for next line
@@ -175,9 +175,9 @@ def packet_processor(ser, data_queue, stop_event, collector):
                             if result['hash_valid']:
                                 send_ack(ser, result['received_hash'])
                             else:
-                                print("❌ Hash invalid, no ACK sent")
+                                print("Hash invalid, no ACK sent")
                         else:
-                            print("❌ ACK not requested, no ACK sent")
+                            print("ACK not requested, no ACK sent")
                     packet_data = bytearray()
                     buffer = buffer[4:]
                     
@@ -194,7 +194,7 @@ def packet_processor(ser, data_queue, stop_event, collector):
                             # Debug: Print CBOR structure with keys
                             data = result.get('data', {})
                             print(f"Received Chunk {data.get(0)} (Packet ID: {result['packet_id']})")
-                            print(f"📦 CBOR Data: {data}")
+                            print(f"CBOR Data: {data}")
                             
                             # Process chunk in collector
                             collector.process_chunk(result)
@@ -207,9 +207,9 @@ def packet_processor(ser, data_queue, stop_event, collector):
                                 if result['hash_valid']:
                                     send_ack(ser, result['received_hash'])
                                 else:
-                                    print("❌ Hash invalid, no ACK sent")
+                                    print("Hash invalid, no ACK sent")
                             else:
-                                print("❌ ACK not requested, no ACK sent")
+                                print("ACK not requested, no ACK sent")
                     packet_data = bytearray()
                     buffer = buffer[4:]
                     
@@ -230,7 +230,7 @@ def offline_mode(filename):
     """Run in offline mode loading data from XML"""
     collector = DeviceDataCollector()
     if collector.load_from_xml(filename):
-        print("✅ Data loaded. Entering offline command mode.")
+        print("Data loaded. Entering offline command mode.")
         print("Press 'v' to visualize, 's' to save report, 'q' to quit")
         
         while True:
@@ -247,7 +247,7 @@ def offline_mode(filename):
             except EOFError:
                 break
     else:
-        print("❌ Failed to load data.")
+        print("Failed to load data.")
 
 def monitor_serial():
     """Concurrent serial monitor with two threads"""
@@ -294,7 +294,7 @@ def monitor_serial():
                         break
                 
                 if not reader_thread.is_alive() or not processor_thread.is_alive():
-                    print("❌ Thread died")
+                    print("Thread died")
                     break
                     
         except KeyboardInterrupt:
