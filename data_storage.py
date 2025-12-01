@@ -232,9 +232,9 @@ class DeviceDataCollector:
             'total_chunks': header_data.get(HEADER_KEY_TOTAL_CHUNKS, 0),
             'expected_sessions': header_data.get(HEADER_KEY_EXPECTED_SESSIONS, 1),
             'pins': [],
-            'received_sessions': {},  # session_id -> set of chunk_ids
+            'received_sessions': {}, 
             'raw_header': header_result.get('raw_bytes', b''),
-            'raw_session_chunks': {}, # session_id -> {chunk_id -> raw_bytes}
+            'raw_session_chunks': {}, 
             'complete': False,
             'saved': False,
             'uuid': header_data.get(HEADER_KEY_DEVICE_UUID, "UNKNOWN"),
@@ -278,6 +278,8 @@ class DeviceDataCollector:
                                 KEY_CONNECTION_TYPE: c.get(KEY_CONNECTION_TYPE, 0)} 
                                for c in pin_entry.get(KEY_CONNECTIONS, [])]
 
+
+            strength = analyze_pin(events)
             # Find existing pin entry or create new one
             existing_pin = next((p for p in device['pins'] if p['pin'] == pin_num), None)
             
@@ -285,6 +287,7 @@ class DeviceDataCollector:
                 # Overwrite events and mask with latest session data
                 existing_pin['events'] = events
                 existing_pin['events_mask'] = events_raw
+                existing_pin['strength'] = strength
                 # Append new connections
                 existing_pin['connections'].extend(new_connections)
             else:
@@ -292,6 +295,7 @@ class DeviceDataCollector:
                     'pin': pin_num,
                     'events': events,
                     'events_mask': events_raw,
+                    'strength': strength,
                     'connections': new_connections
                 })
         
@@ -402,13 +406,16 @@ class DeviceDataCollector:
             df = self.create_phase_matrix(device_family, phase)
             if df is not None:
                 combined_bytes += df.values.tobytes()
-        # Force analysis
+        # Force analysis - use stored strengths if available
         strengths = []
         for pin_data in device['pins']:
             pin_num = pin_data.get('pin', 'UNKNOWN')
             pin_name = get_pin_name(device_family, pin_num)
-            events = pin_data.get('events', [])
-            strength = analyze_pin(pin_name, events)
+            # Use stored strength if available, otherwise calculate
+            strength = pin_data.get('strength')
+            if strength is None:
+                events = pin_data.get('events', [])
+                strength = analyze_pin(events)
             strengths.append(strength)
         
         # Convert for hash (None -> 0)
@@ -533,8 +540,11 @@ class DeviceDataCollector:
                 for pin_data in device_data['pins']:
                     pin_num = pin_data.get('pin', 'UNKNOWN')
                     pin_name = get_pin_name(family, pin_num)
-                    events = pin_data.get('events', [])
-                    strength = analyze_pin(pin_name, events)
+                    # Use stored strength if available, otherwise calculate
+                    strength = pin_data.get('strength')
+                    if strength is None:
+                        events = pin_data.get('events', [])
+                        strength = analyze_pin(events)
                     strengths.append(strength)
             
             print(f"\n{'='*80}")
@@ -551,7 +561,16 @@ class DeviceDataCollector:
     
     
     def _should_mask_connection(self, events, phase):
-        strength = analyze_pin(events)
+        # Use stored strength if available, otherwise calculate
+        strength = None
+        for pin in self.devices[self.current_device_family]['pins']:
+            if pin['events'] == events:
+                strength = pin.get('strength')
+                break
+        
+        if strength is None:
+            strength = analyze_pin(events)
+            
         if strength is None or strength == 0:
             return False
         # Mask pins with strength >= 1 in phases 1 and 3
@@ -773,8 +792,11 @@ class DeviceDataCollector:
                 # Find pin data
                 pin_entry = next((p for p in device_data['pins'] if p['pin'] == pin_num), None)
                 if pin_entry:
-                    events = pin_entry.get('events', [])
-                    strength = analyze_pin(pin_name, events)
+                    # Use stored strength if available, otherwise calculate
+                    strength = pin_entry.get('strength')
+                    if strength is None:
+                        events = pin_entry.get('events', [])
+                        strength = analyze_pin(events)
                     pin_names.append(pin_name)
                     pin_strengths.append(strength)
             
