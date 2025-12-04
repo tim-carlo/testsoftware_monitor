@@ -207,7 +207,7 @@ class DeviceDataCollector:
              plt.legend(handles=legend_handles, loc='upper left', bbox_to_anchor=(0, -0.2))
              
         plt.tight_layout()
-        plt.savefig(filename, bbox_inches='tight')
+        plt.savefig(filename, format='pdf', bbox_inches='tight')
         plt.close()
         print(f"  Saved: {filename}")
 
@@ -312,7 +312,6 @@ class DeviceDataCollector:
         # Filter connections after all data is loaded
         if device['complete']:
             self._filter_weak_connections(self.current_device_family)
-        
         return True
     
     def _filter_weak_connections(self, device_family):
@@ -479,6 +478,11 @@ class DeviceDataCollector:
             self.print_all_phase_matrices(device_family)
         self.print_all_pin_events()
         self.run_pin_analysis()
+        
+        # Add simple vector analysis to text output
+        from connection_analyzer import print_vectors
+        print_vectors(self)
+        
         self._stop_output_capture()
     
     
@@ -742,7 +746,7 @@ class DeviceDataCollector:
                 if device_family != other_device:
                     df = self.create_connection_matrix(device_family, other_device)
                     if df is not None and not df.empty:
-                        filename = f"{base_dir}/matrix_external_{device_family}_to_{other_device}.png"
+                        filename = f"{base_dir}/matrix_external_{device_family}_to_{other_device}.pdf"
                         self._save_heatmap(df, filename, "Blues", "Pin", "Pin")
 
             # Phase matrices
@@ -755,29 +759,13 @@ class DeviceDataCollector:
                     
                     legend_handles = [
                         mpatches.Patch(facecolor='white', label='0: Unchanged', edgecolor='lightgray'),
-                        mpatches.Patch(color='#2ca02c', label='1: Changed (Valid)'),
-                        mpatches.Patch(color='#d62728', label='2: Masked')
-                    ]
-                    
-                    filename = f"{base_dir}/matrix_phase_{phase}_{device_family}.png"
-                    self._save_heatmap(df, filename, cmap, "Measured Pin", "Changed Pin", 
-                                     vmin=0, vmax=2, legend_handles=legend_handles)
-
-            # Phase matrices
-            for phase in range(6):
-                df = self.create_phase_matrix(device_family, phase, include_masked=True)
-                if df is not None and not df.empty:
-                    # Custom colormap: 0=White, 1=Green, 2=Red
-                    from matplotlib.colors import ListedColormap
-                    cmap = ListedColormap(['white', '#2ca02c', '#d62728']) # White, Green, Red
-                    
-                    legend_handles = [
-                        mpatches.Patch(facecolor='white', label='0: Unchanged', edgecolor='lightgray'),
                         mpatches.Patch(color='#2ca02c', label='1: Changed'),
                         mpatches.Patch(color='#d62728', label='2: Masked')
                     ]
                     
-                    self._save_heatmap(df, f"{base_dir}/matrix_phase_{phase}_{device_family}.png", cmap, "Measured Pin", "Changed Pin", annot=True, fmt='g', vmin=0, vmax=2, legend_handles=legend_handles)
+                    filename = f"{base_dir}/matrix_phase_{phase}_{device_family}.pdf"
+                    self._save_heatmap(df, filename, cmap, "Measured Pin", "Changed Pin", 
+                                     vmin=0, vmax=2, legend_handles=legend_handles)
 
             # Pin Strength Bar Chart
             pin_names = []
@@ -832,8 +820,8 @@ class DeviceDataCollector:
                 plt.legend(handles=legend_handles, loc='upper right')
 
                 plt.tight_layout()
-                filename = f"{base_dir}/strength_chart_{device_family}.png"
-                plt.savefig(filename)
+                filename = f"{base_dir}/strength_chart_{device_family}.pdf"
+                plt.savefig(filename, format='pdf', bbox_inches='tight')
                 plt.close()
                 print(f"  Saved: {filename}")
 
@@ -853,10 +841,14 @@ class DeviceDataCollector:
                     mpatches.Patch(color='#ff7f0e', label='Occurred')
                 ]
                 
-                filename = f"{base_dir}/matrix_events_{device_family}.png"
+                filename = f"{base_dir}/matrix_events_{device_family}.pdf"
                 self._save_heatmap(df_events, filename, cmap_events, "Event", "Pin", 
                                  annot=annot_df, fmt='', vmin=0, vmax=1, 
                                  legend_handles=legend_handles, figsize=(width, height))
+        
+        # Create connection vector plots
+        from connection_analyzer import create_vector_plots
+        create_vector_plots(self, base_dir)
         
         print(f"Visualization complete")
 
