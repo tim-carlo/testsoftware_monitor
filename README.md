@@ -58,6 +58,7 @@ The following commands are available in both Live and File Analysis modes:
 The main processing occurs in `data_storage.py` and includes:
 
   * **Matrix Calculations:** Computation logic for incoming data.
+  * **Vector Representations:** Computes vector representations of the data.
   * **Visualization:** Data display and rendering.
   * **I/O:** Import and export functionality for XML files.
   * **Filtering:** Data filter functions.

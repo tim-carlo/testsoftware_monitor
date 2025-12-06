@@ -37,11 +37,13 @@ HEADER_KEY_EXPECTED_SESSIONS = 10
 CONNECTION_TYPE_INTERNAL = 0
 CONNECTION_TYPE_EXTERNAL = 1
 
-# Internal Connection Phases (KEY_CONNECTION_PARAMETER values for internal connections)
+# Internal Connection Phases
 PHASE_0_PULLDOWN = 0
 PHASE_1_PULLUP = 1
 PHASE_2_DRIVE_LOW = 2
 PHASE_3_DRIVE_HIGH = 3
+PHASE_4_ALLPULLUP_LOW = 4
+PHASE_5_ALLPULLDOWN_HIGH = 5
 
 PHASE_NAMES = {
     0: "ONE_SET_PULLDOWN",
@@ -351,38 +353,26 @@ class DeviceDataCollector:
         if not device:
             return
         
-        # Collect all connections and group by directional pin pairs
+        # Collect connections grouped by directional pin pairs
         connection_pairs = {}
-        all_connections = []
         
-        # First pass: collect all connections and group by directional pin pairs
+        # First pass: group connections by directional pin pairs
         for pin in device['pins']:
             for conn in pin['connections']:
                 if conn.get(KEY_CONNECTION_TYPE, 0) == CONNECTION_TYPE_INTERNAL:
-                    source_pin = pin['pin']
-                    target_pin = conn.get(KEY_OTHER_PIN)
                     phase = conn.get(KEY_CONNECTION_PARAMETER, -1)
-                    
                     if 0 <= phase <= 5:
-                        # Create directional pin pair key (source -> target)
-                        pin_pair = (source_pin, target_pin)
-                        
+                        pin_pair = (pin['pin'], conn.get(KEY_OTHER_PIN))
                         if pin_pair not in connection_pairs:
-                            connection_pairs[pin_pair] = set()
-                        
-                        connection_pairs[pin_pair].add(phase)
-                        all_connections.append((conn, pin_pair, phase))
+                            connection_pairs[pin_pair] = {'phases': set(), 'connections': []}
+                        connection_pairs[pin_pair]['phases'].add(phase)
+                        connection_pairs[pin_pair]['connections'].append(conn)
         
-        # Second pass: apply masking based on phases available for each directional connection
-        for conn, pin_pair, phase in all_connections:
-            pair_phases = connection_pairs[pin_pair]
-            
-            if PhaseMasking.should_keep_phase(phase, pair_phases):
-                conn['phase_masked'] = False
-            else:
-                conn['phase_masked'] = True
-        
-        # Phase masking complete
+        # Second pass: apply masking
+        for pair_data in connection_pairs.values():
+            for conn in pair_data['connections']:
+                phase = conn.get(KEY_CONNECTION_PARAMETER, -1)
+                conn['phase_masked'] = not PhaseMasking.should_keep_phase(phase, pair_data['phases'])
     
     def get_all_devices(self):
         return self.devices
@@ -654,7 +644,7 @@ class DeviceDataCollector:
             return
         self._save_matrix(df, f"External Connection Matrix: Device {controller_a} -> Device {controller_b}", filename)
         
-    def create_phase_matrix(self, controller, phase, include_masked=False):
+    def create_phase_matrix(self, controller, phase):
         if controller not in self.devices:
             print(f"Controller {controller} not found")
             return None
@@ -692,12 +682,15 @@ class DeviceDataCollector:
                         if pin_works:
                             is_masked = conn.get('masked', False)
                             is_phase_masked = conn.get('phase_masked', False)
-                            if not is_masked:
-                                df.at[pin_name_a, pin_name_b] = 1
-                            if  is_phase_masked:
+                            
+                            if is_phase_masked:
+                                # Phase masked connections show as 3
                                 df.at[pin_name_a, pin_name_b] = 3
-                            elif include_masked:
+                            elif is_masked:
+                                # Pin strength masked connections show as 2
                                 df.at[pin_name_a, pin_name_b] = 2
+                            else:
+                                df.at[pin_name_a, pin_name_b] = 1
         return df
 
     def print_phase_matrix(self, controller, phase, filename=None):
@@ -799,21 +792,22 @@ class DeviceDataCollector:
 
             # Phase matrices
             for phase in range(6):
-                df = self.create_phase_matrix(device_family, phase, include_masked=True)
+                df = self.create_phase_matrix(device_family, phase)
                 if df is not None and not df.empty:
-                    # Custom colormap: 0=White, 1=Green, 2=Red
+                    # Custom colormap: 0=White, 1=Green, 2=Red (pin masked), 3=Dark Red (phase masked)
                     from matplotlib.colors import ListedColormap
-                    cmap = ListedColormap(['white', '#2ca02c', '#d62728'])
+                    cmap = ListedColormap(['white', '#2ca02c', '#ff7f7f', '#d62728'])
                     
                     legend_handles = [
                         mpatches.Patch(facecolor='white', label='0: Unchanged', edgecolor='lightgray'),
                         mpatches.Patch(color='#2ca02c', label='1: Changed'),
-                        mpatches.Patch(color='#d62728', label='2: Masked')
+                        mpatches.Patch(color='#ff7f7f', label='2: Pin Strength Masked'),
+                        mpatches.Patch(color='#d62728', label='3: Phase Masked')
                     ]
                     
                     filename = f"{base_dir}/matrix_phase_{phase}_{device_family}.pdf"
                     self._save_heatmap(df, filename, cmap, "Measured Pin", "Changed Pin", 
-                                     vmin=0, vmax=2, legend_handles=legend_handles)
+                                     vmin=0, vmax=3, legend_handles=legend_handles)
 
             # Pin Strength Bar Chart
             pin_names = []

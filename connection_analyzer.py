@@ -10,12 +10,12 @@ from datetime import datetime
 
 
 PHASE_VECTORS = {
-    0: {"A_to_B": (3, -3),   "B_to_A": (-3, -3)},   # Phase 0: Group 1 values
-    1: {"A_to_B": (3, 3),    "B_to_A": (-3, 3)},    # Phase 1: Group 2 values 
-    2: {"A_to_B": (2, -2),   "B_to_A": (-2, -2)},   # Phase 2: Group 1 values
-    3: {"A_to_B": (2, 2),    "B_to_A": (-2, 2)},    # Phase 3: Group 2 values
-    4: {"A_to_B": (1, -1),   "B_to_A": (-1, -1)},   # Phase 4: Group 1 values
-    5: {"A_to_B": (1, 1),    "B_to_A": (-1, 1)}     # Phase 5: Group 2 values
+    0: {"A_to_B": (-1, 1),   "B_to_A": (1, 1)},      
+    1: {"A_to_B": (-1, -1),  "B_to_A": (1, -1)},     
+    2: {"A_to_B": (-2, 2),   "B_to_A": (2, 2)},      
+    3: {"A_to_B": (-2, -2),  "B_to_A": (2, -2)},     
+    4: {"A_to_B": (-3, 3),   "B_to_A": (3, 3)},      
+    5: {"A_to_B": (-3, -3),  "B_to_A": (3, -3)}      
 }
 
 # Phase masking is now handled in data_storage.py before vector analysis
@@ -117,7 +117,7 @@ def analyze_connections(collector):
                         'value': (sum_x, sum_y),
                         'group': 1,
                         'direction': 'A_to_B',
-                        'label': f'Ph 0,2,4 - A→B ({data["pin_a"]}→{data["pin_b"]})'
+                        'label': f'Ph 0,2,4 - P{data["pin_a"]}→P{data["pin_b"]}'
                     })
             
             # Calculate A_to_B Group 2 (phases 1+3+5) - 2D vector sum
@@ -133,7 +133,7 @@ def analyze_connections(collector):
                         'value': (sum_x, sum_y),
                         'group': 2,
                         'direction': 'A_to_B',
-                        'label': f'Ph 1,3,5 - A→B ({data["pin_a"]}→{data["pin_b"]})'
+                        'label': f'Ph 1,3,5 - P{data["pin_a"]}→P{data["pin_b"]}'
                     })
             
             # Calculate B_to_A Group 1 (phases 0+2+4) - 2D vector sum
@@ -149,7 +149,7 @@ def analyze_connections(collector):
                         'value': (sum_x, sum_y),
                         'group': 1,
                         'direction': 'B_to_A',
-                        'label': f'Ph 0,2,4 - B→A ({data["pin_b"]}→{data["pin_a"]})'
+                        'label': f'Ph 0,2,4 - P{data["pin_b"]}→P{data["pin_a"]}'
                     })
             
             # Calculate B_to_A Group 2 (phases 1+3+5) - 2D vector sum
@@ -165,7 +165,7 @@ def analyze_connections(collector):
                         'value': (sum_x, sum_y),
                         'group': 2,
                         'direction': 'B_to_A',
-                        'label': f'Ph 1,3,5 - B→A ({data["pin_b"]}→{data["pin_a"]})'
+                        'label': f'Ph 1,3,5 - P{data["pin_b"]}→P{data["pin_a"]}'
                     })
             
             # Only add to summary if there are vectors after filtering
@@ -282,12 +282,12 @@ def create_vector_plots(collector, base_dir):
                              ec=color, 
                              linewidth=2.5, alpha=1.0, label=label)
                     
-                    # Add absolute x-axis value label offset from arrow tip
+                    # Add x-axis value label offset from arrow tip
                     magnitude = (dx**2 + dy**2)**0.5
                     label_offset_x = 1.0 * (dx / magnitude) if magnitude > 0 else 0
                     label_offset_y = 1.0 * (dy / magnitude) if magnitude > 0 else 0
                     ax.text(dx + label_offset_x, dy + label_offset_y, 
-                            f"{abs(dx):.0f}", 
+                            f"{dx:.0f}", 
                             fontsize=10, color='black', 
                             ha='center', va='center', fontweight='medium')
             
