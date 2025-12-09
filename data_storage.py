@@ -182,8 +182,6 @@ class DeviceDataCollector:
         self.original_stdout = None
         self.capture_started = False
 
-    # ===== Helper Methods =====
-
 
     def _save_matrix(self, df, title=None, filename=None):
         if title:
@@ -213,8 +211,6 @@ class DeviceDataCollector:
         plt.savefig(filename, format='pdf', bbox_inches='tight')
         plt.close()
         print(f"  Saved: {filename}")
-
-    # ===== Data Processing Methods =====
     
     def process_header(self, header_result):
         if not header_result or not header_result.get('hash_valid'):

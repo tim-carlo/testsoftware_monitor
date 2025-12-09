@@ -97,11 +97,6 @@ def analyze_connections(collector):
             a_to_b_vectors = data['a_to_b_vectors']
             b_to_a_vectors = data['b_to_a_vectors']
             
-            # Get phases for each direction
-            a_to_b_phases_set = set(phase for _, phase in a_to_b_vectors)
-            b_to_a_phases_set = set(phase for _, phase in b_to_a_vectors)
-            
-
             
             # Calculate A_to_B Group 1 (phases 0+2+4) - 2D vector sum
             a_to_b_group1_vectors = [
