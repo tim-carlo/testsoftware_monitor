@@ -5,8 +5,6 @@ from event_decoder import decode_event_type_one_hot, PIN_EVENT_TYPES
 from pin_analyzer import analyze_all_pins, analyze_pin
 from phase_masking import PhaseMasking
 import base64
-import hashlib
-import cbor2
 from datetime import datetime
 import sys
 
@@ -185,6 +183,8 @@ class DeviceDataCollector:
         self.capture_started = False
 
     # ===== Helper Methods =====
+
+
     def _save_matrix(self, df, title=None, filename=None):
         if title:
             print(f"\n=== {title} ===")
@@ -413,7 +413,7 @@ class DeviceDataCollector:
         device = self.devices.get(device_family)
         if not device:
             return
-
+        self._apply_phase_masking(device_family)
         self._start_output_capture(device_family, device.get('uuid'))
 
         if self.original_stdout:
@@ -430,28 +430,23 @@ class DeviceDataCollector:
                 df = self.create_connection_matrix(device_family, other_device)
                 if df is not None:
                     combined_bytes += df.values.tobytes()
-        # All 6 phase matrices
         for phase in range(6):
             df = self.create_phase_matrix(device_family, phase)
             if df is not None:
                 combined_bytes += df.values.tobytes()
-        # Force analysis - use stored strengths if available
         strengths = []
         for pin_data in device['pins']:
             pin_num = pin_data.get('pin', 'UNKNOWN')
             pin_name = get_pin_name(device_family, pin_num)
-            # Use stored strength if available, otherwise calculate
             strength = pin_data.get('strength')
             if strength is None:
                 events = pin_data.get('events', [])
                 strength = analyze_pin(events)
             strengths.append(strength)
         
-        # Convert for hash (None -> 0)
-        hash_strengths = [0 if s is None else int(s) for s in strengths]
-        combined_bytes += bytearray([s & 0xFF for s in hash_strengths])
-        combined_hash = hashlib.sha256(combined_bytes).hexdigest()
-        print(f"HASH: {combined_hash}")
+        from export_sha256 import export_sha256
+        sha256_hash = export_sha256([device])
+        print(f"HASH: {sha256_hash}")
 
         # Print connections summary (filtered for this device)
         print("\n=== Pin Connections ===")
@@ -498,21 +493,52 @@ class DeviceDataCollector:
     
     def manual_save(self):
         """Manual save triggered by 's' command"""
+        for device_family in self.devices:
+            self._apply_phase_masking(device_family)
+
         self._start_output_capture("ALL", "DEVICES")
         print(f"Manual save")
         self.print_connections_summary()
+        from export_sha256 import export_sha256
+        sha256_hash = export_sha256([self.devices.get(self.current_device_family)])
+        device = self.devices.get(self.current_device_family)
+        version = device.get('git_commit', 'UNKNOWN') if device else 'UNKNOWN'
+        uuid = device.get('uuid', 'UNKNOWN') if device else 'UNKNOWN'
+        family = self.current_device_family
+        meta = f"SHA256: {sha256_hash}\nVersion: {version}\nUUID: {uuid}\nDevice Family: {family}\n"
+        if self.output_file:
+            self.output_file.write(meta)
         for device_family in sorted(self.devices.keys()):
             for other_device in sorted(self.devices.keys()):
                 if device_family != other_device:
                     self.print_connection_matrix(device_family, other_device)
             self.print_all_phase_matrices(device_family)
-        self.print_all_pin_events()
+        print("\n=== All Connections After Masking ===")
+        for device_family, device_data in sorted(self.devices.items()):
+            print(f"Device {device_family}:")
+            for pin in device_data['pins']:
+                pin_name = get_pin_name(device_family, pin['pin'])
+                for conn in pin['connections']:
+                    other_pin_name = get_pin_name(device_family, conn.get(KEY_OTHER_PIN))
+                    
+                    strength = pin.get('strength')
+                    if strength is None:
+                        strength = analyze_pin(pin.get('events', []))
+                    
+                    strength_masked = self._should_mask_connection(pin['events'], conn.get(KEY_CONNECTION_PARAMETER), strength)
+                    masked = conn.get('masked', False)
+                    phase_masked = conn.get('phase_masked', False)
+                    
+                    if not (masked or phase_masked or strength_masked):
+                        conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
+                        param = conn.get(KEY_CONNECTION_PARAMETER, 0)
+                        if conn_type == CONNECTION_TYPE_INTERNAL:
+                            phase_name = PHASE_NAMES.get(param, f"PHASE_{param}")
+                            print(f"  {pin_name} -> {other_pin_name} [{phase_name}]")
+                        else:
+                            print(f"  {pin_name} -> Device{param}:{other_pin_name} [EXT]")
+            print("="*23 + "\n")
         self.run_pin_analysis()
-        
-        # Add simple vector analysis to text output
-        from connection_analyzer import print_vectors
-        print_vectors(self)
-        
         self._stop_output_capture()
     
     
@@ -523,7 +549,11 @@ class DeviceDataCollector:
             for pin in device_data['pins']:
                 pin_name = get_pin_name(device_family, pin['pin'])
                 for conn in pin['connections']:
-                    if conn.get('masked', False):
+                    strength = pin.get('strength')
+                    if strength is None:
+                        strength = analyze_pin(pin.get('events', []))
+                        
+                    if self._should_mask_connection(pin['events'], conn.get(KEY_CONNECTION_PARAMETER), strength) or conn.get('masked', False) or conn.get('phase_masked', False):
                         continue
                     conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                     param = conn.get(KEY_CONNECTION_PARAMETER, 0)
@@ -594,13 +624,13 @@ class DeviceDataCollector:
             print(f"{'='*80}\n")
     
     
-    def _should_mask_connection(self, events, phase):
+    def _should_mask_connection(self, events, phase, strength=None):
         # Use stored strength if available, otherwise calculate
-        strength = None
-        for pin in self.devices[self.current_device_family]['pins']:
-            if pin['events'] == events:
-                strength = pin.get('strength')
-                break
+        if strength is None:
+            for pin in self.devices[self.current_device_family]['pins']:
+                if pin['events'] == events:
+                    strength = pin.get('strength')
+                    break
         
         if strength is None:
             strength = analyze_pin(events)
@@ -680,17 +710,7 @@ class DeviceDataCollector:
                                         
                     if conn_phase == phase and pin_name_b in labels:
                         if pin_works:
-                            is_masked = conn.get('masked', False)
-                            is_phase_masked = conn.get('phase_masked', False)
-                            
-                            if is_phase_masked:
-                                # Phase masked connections show as 3
-                                df.at[pin_name_a, pin_name_b] = 3
-                            elif is_masked:
-                                # Pin strength masked connections show as 2
-                                df.at[pin_name_a, pin_name_b] = 2
-                            else:
-                                df.at[pin_name_a, pin_name_b] = 1
+                            df.at[pin_name_a, pin_name_b] = 1
         return df
 
     def print_phase_matrix(self, controller, phase, filename=None):

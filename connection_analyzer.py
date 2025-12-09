@@ -38,14 +38,13 @@ def analyze_connections(collector):
             for conn in pin['connections']:
                 conn_type = conn.get(KEY_CONNECTION_TYPE, 0)
                 
-                # Skip masked connections
+                 # Skip masked connections
                 if conn.get('masked', False):
                     continue
                 
                 # Skip phase-masked connections  
                 if conn.get('phase_masked', False):
                     continue
-                
                 # Get phase for this connection
                 original_phase = conn.get(KEY_CONNECTION_PARAMETER, -1)
                 
@@ -268,29 +267,16 @@ def create_vector_plots(collector, base_dir):
                 }
                 
                 # Plot 2D vectors directly
-                for vector_info in plot_order_vectors:
-                    dx, dy = vector_info['value']  # 2D vector components
-                    group = vector_info['group']
-                    direction = vector_info['direction']
-                    label = vector_info['label']
-                    
-                    # Plot 2D arrow from origin with direction+group specific color
-                    color = vector_colors[(direction, group)]
-                    ax.arrow(0, 0, dx, dy, 
-                             head_width=0.2, head_length=0.2, 
-                             fc=color, 
-                             ec=color, 
-                             linewidth=2.5, alpha=1.0, label=label)
-                    
-                    # Add x-axis value label offset from arrow tip
-                    magnitude = (dx**2 + dy**2)**0.5
-                    label_offset_x = 1.0 * (dx / magnitude) if magnitude > 0 else 0
-                    label_offset_y = 1.0 * (dy / magnitude) if magnitude > 0 else 0
-                    ax.text(dx + label_offset_x, dy + label_offset_y, 
-                            f"{dx:.0f}", 
-                            fontsize=10, color='black', 
-                            ha='center', va='center', fontweight='medium')
-            
+                for v in plot_order_vectors:
+                    dx, dy = v['value']
+                    color = vector_colors[(v['direction'], v['group'])]
+                    ax.arrow(0, 0, dx, dy, head_width=0.2, head_length=0.2, fc=color, ec=color, linewidth=2.5, alpha=1.0, label=v['label'])
+                    mag = (dx**2 + dy**2)**0.5
+                    lx = dx + (dx / mag if mag else 0)
+                    ly = dy + (dy / mag if mag else 0)
+                    dx_label = f"+{abs(dx):.0f}" if dy > 0 else f"-{abs(dx):.0f}"
+                    ax.text(lx, ly, dx_label, fontsize=10, color='black', ha='center', va='center', fontweight='medium')
+        
             # Calculate limits for 2D vector display
             if data['grouped_vectors']:
                 all_x = [v['value'][0] for v in data['grouped_vectors']]
@@ -354,21 +340,3 @@ def create_vector_plots(collector, base_dir):
         print(f"  Saved: {filename}")
         
     sns.reset_defaults()
-
-def print_vectors(collector):
-    """Print simple vector summary"""
-    results = analyze_connections(collector)
-    
-    for device_family, summary_data in results.items():
-        print(f"\n=== Connection Vectors - Device {device_family} ===")
-        
-        if not summary_data:
-            print("No internal connections found.")
-            continue
-        
-        for data in summary_data:
-            for vector_info in data['grouped_vectors']:
-                dx, dy = vector_info['value']
-                print(f"  {vector_info['label']}: ({dx}, {dy})")
-                
-            print()  # Empty line for better readability
